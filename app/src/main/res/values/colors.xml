@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Темная тема -->
+    <color name="background">#121212</color>
+    <color name="surface">#1E1E1E</color>
+    <color name="surface_variant">#2C2C2C</color>
+
+    <!-- Акцентные цвета -->
+    <color name="green_normal">#4CAF50</color>
+    <color name="orange_warning">#FF9800</color>
+    <color name="red_danger">#F44336</color>
+    <color name="blue_info">#2196F3</color>
+
+    <!-- Текст -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B0B0B0</color>
+</resources>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Диагностика DTC"
+        android:textSize="24sp"
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/tv_diag_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Не подключен"
+        android:textColor="@color/red_danger"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btn_diag_connect"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Подключиться к адаптеру"
+        android:backgroundTint="@color/blue_info"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Коды ошибок:"
+        android:textColor="@color/text_secondary"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tv_error_codes"
+        android:layout_width="match_parent"
+        android:layout_height="150dp"
+        android:background="@color/surface"
+        android:padding="12dp"
+        android:text="Нажмите 'Считать ошибки'"
+        android:textColor="@color/text_primary"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/btn_read_errors"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Считать ошибки"
+        android:backgroundTint="@color/blue_info"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/btn_clear_errors"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Очистить ошибки"
+        android:backgroundTint="@color/orange_warning" />
+
+</LinearLayout>
