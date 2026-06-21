@@ -1,8 +1,13 @@
+/*
+ * ConnectedThread.java — поток для непрерывного чтения данных из Bluetooth-сокета.
+ * Работает в фоновом потоке, читает байты из InputStream и передаёт их через колбэк.
+ * Используется для приёма данных от ELM327 и HC-05.
+ */
+
 package com.example.autodiag.obd;
 
 import android.bluetooth.BluetoothSocket;
 import android.util.Log;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -11,14 +16,13 @@ public class ConnectedThread extends Thread {
     private final BluetoothSocket mmSocket;
     private final InputStream mmInStream;
     private final OutputStream mmOutStream;
-    private StringBuilder receivedData = new StringBuilder();
+    private DataReceivedListener listener;
 
+    // Интерфейс для уведомления фрагмента о получении данных
     public interface DataReceivedListener {
         void onDataReceived(String data);
         void onConnectionLost();
     }
-
-    private DataReceivedListener listener;
 
     public ConnectedThread(BluetoothSocket socket, DataReceivedListener listener) {
         mmSocket = socket;
@@ -37,6 +41,7 @@ public class ConnectedThread extends Thread {
         mmOutStream = tmpOut;
     }
 
+    // Отправка команды в адаптер
     public void write(String command) {
         try {
             mmOutStream.write(command.getBytes());
@@ -46,6 +51,8 @@ public class ConnectedThread extends Thread {
         }
     }
 
+    // Основной цикл — непрерывное чтение данных из сокета
+    @Override
     public void run() {
         byte[] buffer = new byte[1024];
         int bytes;
@@ -63,6 +70,7 @@ public class ConnectedThread extends Thread {
         }
     }
 
+    // Закрытие сокета
     public void cancel() {
         try {
             mmSocket.close();

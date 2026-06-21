@@ -1,9 +1,15 @@
+/*
+ * ConnectTask.java — асинхронная задача для подключения к Bluetooth-устройству.
+ * Использует AsyncTask для выполнения в фоновом потоке.
+ * При успехе — возвращает BluetoothSocket, при ошибке — null.
+ * Поддерживает два метода подключения: стандартный и через рефлексию (для старых адаптеров).
+ */
+
 package com.example.autodiag.obd;
 
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.os.AsyncTask;
-
 import java.util.UUID;
 
 public class ConnectTask extends AsyncTask<Void, Void, BluetoothSocket> {
@@ -26,14 +32,16 @@ public class ConnectTask extends AsyncTask<Void, Void, BluetoothSocket> {
     @Override
     protected BluetoothSocket doInBackground(Void... voids) {
         try {
-            // try-catch для SecurityException
+            // Стандартный способ (основной)
             try {
                 socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
                 socket.connect();
                 return socket;
             } catch (SecurityException e) {
-                // Пробуем альтернативный метод
-                socket = (BluetoothSocket) device.getClass().getMethod("createRfcommSocket", int.class).invoke(device, 1);
+                // Альтернативный способ (через рефлексию) — для старых адаптеров
+                socket = (BluetoothSocket) device.getClass()
+                        .getMethod("createRfcommSocket", int.class)
+                        .invoke(device, 1);
                 socket.connect();
                 return socket;
             }

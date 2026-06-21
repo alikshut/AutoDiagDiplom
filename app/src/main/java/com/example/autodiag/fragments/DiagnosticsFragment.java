@@ -1,8 +1,18 @@
+/*
+ * DiagnosticsFragment.java — экран диагностики DTC.
+ * Отвечает за:
+ *   - чтение кодов ошибок (Mode 03)
+ *   - очистку ошибок (Mode 04)
+ *   - парсинг HEX-ответов в коды типа P0300
+ */
+
 package com.example.autodiag.fragments;
 
+import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.LayoutInflater;
@@ -13,13 +23,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.example.autodiag.R;
 import com.example.autodiag.obd.ConnectTask;
 import com.example.autodiag.obd.ConnectedThread;
 
-import java.io.IOException;
 import java.util.Set;
 
 public class DiagnosticsFragment extends Fragment implements
@@ -69,7 +80,17 @@ public class DiagnosticsFragment extends Fragment implements
         return view;
     }
 
+    // ПОДКЛЮЧЕНИЕ К АДАПТЕРУ (С ПРОВЕРКОЙ РАЗРЕШЕНИЙ)
     private void connectToOBD() {
+        // Проверка разрешений для Android 12+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                addLog("Требуется разрешение BLUETOOTH_CONNECT");
+                requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 100);
+                return;
+            }
+        }
+
         if (bluetoothAdapter == null) {
             addLog("Bluetooth не поддерживается");
             return;
@@ -80,11 +101,24 @@ public class DiagnosticsFragment extends Fragment implements
             return;
         }
 
-        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
-        BluetoothDevice obdDevice = null;
+        // Получение списка сопряжённых устройств (с try-catch)
+        Set<BluetoothDevice> pairedDevices;
+        try {
+            pairedDevices = bluetoothAdapter.getBondedDevices();
+        } catch (SecurityException e) {
+            addLog("Ошибка: нет разрешения на Bluetooth");
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 100);
+            return;
+        }
 
+        BluetoothDevice obdDevice = null;
         for (BluetoothDevice device : pairedDevices) {
-            String name = device.getName();
+            String name;
+            try {
+                name = device.getName(); // getName() тоже требует разрешения
+            } catch (SecurityException e) {
+                continue; // пропускаем устройство, если не можем получить имя
+            }
             if (name != null && (name.contains("OBD") || name.contains("ELM") || name.contains("Vgate"))) {
                 obdDevice = device;
                 break;
@@ -103,6 +137,19 @@ public class DiagnosticsFragment extends Fragment implements
         connectTask.execute();
     }
 
+    // ОБРАБОТКА РАЗРЕШЕНИЙ
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == 100) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                addLog("Разрешение получено, попробуйте снова");
+            } else {
+                addLog("Разрешение отклонено");
+            }
+        }
+    }
+
+    // КОЛБЭКИ ПОДКЛЮЧЕНИЯ
     @Override
     public void onConnectionSuccess(BluetoothSocket socket) {
         bluetoothSocket = socket;
@@ -113,7 +160,6 @@ public class DiagnosticsFragment extends Fragment implements
         addLog("Подключено! Инициализация...");
         tvStatus.setText("Подключено");
 
-        // Инициализация ELM327
         connectedThread.write("ATZ\r");
         handler.postDelayed(() -> {
             connectedThread.write("ATE0\r");
@@ -121,9 +167,7 @@ public class DiagnosticsFragment extends Fragment implements
                 connectedThread.write("ATL0\r");
                 handler.postDelayed(() -> {
                     connectedThread.write("ATSP0\r");
-                    handler.postDelayed(() -> {
-                        addLog("Готов к чтению ошибок");
-                    }, 500);
+                    handler.postDelayed(() -> addLog("Готов к чтению ошибок"), 500);
                 }, 200);
             }, 200);
         }, 500);
@@ -148,15 +192,12 @@ public class DiagnosticsFragment extends Fragment implements
         tvStatus.setText("Не подключен");
     }
 
+    // ПАРСИНГ DTC ОТВЕТОВ
     private void parseDTCResponse(String rawResponse) {
         String response = rawResponse.replace(" ", "").replace(">", "").replace("\r", "").replace("\n", "").trim();
 
-        // Ответ на команду 03 (текущие ошибки) начинается с "43"
         if (response.startsWith("43") && response.length() > 4) {
             StringBuilder codes = new StringBuilder();
-
-            // Парсим ошибки: 43 01 02 03 04...
-            // Каждый байт после "43" — это код ошибки
             for (int i = 2; i < response.length(); i += 2) {
                 if (i + 3 <= response.length()) {
                     String codeHex = response.substring(i, i + 4);
@@ -175,9 +216,7 @@ public class DiagnosticsFragment extends Fragment implements
                 getActivity().runOnUiThread(() -> tvErrorCodes.setText("Ошибок нет"));
                 addLog("Ошибок не обнаружено");
             }
-        }
-        // Ответ на команду 04 (очистка) — "44" или "OK"
-        else if (response.startsWith("44") || response.contains("OK")) {
+        } else if (response.startsWith("44") || response.contains("OK")) {
             getActivity().runOnUiThread(() -> tvErrorCodes.setText("Ошибки очищены"));
             addLog("Ошибки успешно очищены");
         }
@@ -185,22 +224,18 @@ public class DiagnosticsFragment extends Fragment implements
 
     private String hexToDTC(String hex) {
         if (hex.equals("0000") || hex.equals("FFFF")) return "NONE";
-
         try {
             int val = Integer.parseInt(hex, 16);
             int firstByte = (val >> 8) & 0xFF;
             int secondByte = val & 0xFF;
-
             char system = 'P';
             if ((firstByte & 0xC0) == 0x40) system = 'C';
             else if ((firstByte & 0xC0) == 0x80) system = 'B';
             else if ((firstByte & 0xC0) == 0xC0) system = 'U';
-
             int code = ((firstByte & 0x3F) << 8) | secondByte;
             int thousands = (code / 256) % 10;
             int hundreds = (code / 16) % 16;
             int tens = code % 16;
-
             return String.format("%c%01d%01X%01X", system, thousands, hundreds, tens);
         } catch (Exception e) {
             return "UNKNOWN";

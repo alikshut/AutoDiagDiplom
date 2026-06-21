@@ -1,3 +1,12 @@
+/*
+ * ReportsFragment.java — экран отчётов и истории поездок.
+ * Отвечает за:
+ *   - загрузку поездок из Room
+ *   - отображение списка в RecyclerView
+ *   - экспорт отчёта в PDF (через iText7)
+ *   - запрос разрешения WRITE_EXTERNAL_STORAGE для Android 11+
+ */
+
 package com.example.autodiag.fragments;
 
 import android.os.Bundle;
@@ -13,12 +22,10 @@ import android.net.Uri;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import android.Manifest;
-
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.example.autodiag.R;
 import com.example.autodiag.database.AppDatabase;
 import com.example.autodiag.models.TripEntity;
@@ -29,10 +36,7 @@ import com.itextpdf.layout.element.Cell;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
 import com.itextpdf.layout.properties.TextAlignment;
-
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Locale;
@@ -51,14 +55,15 @@ public class ReportsFragment extends Fragment {
         btnExport = view.findViewById(R.id.btn_export_pdf);
 
         rvTrips.setLayoutManager(new LinearLayoutManager(getContext()));
-
         loadTrips();
 
+        // Кнопка экспорта PDF
         btnExport.setOnClickListener(v -> exportPDF());
 
         return view;
     }
 
+    // Загрузка поездок из БД в фоновом потоке
     private void loadTrips() {
         new Thread(() -> {
             trips = AppDatabase.getInstance(getContext()).tripDao().getAllTrips();
@@ -73,6 +78,7 @@ public class ReportsFragment extends Fragment {
         }).start();
     }
 
+    // Экспорт в PDF через iText7
     private void exportPDF() {
         if (trips == null || trips.isEmpty()) {
             Toast.makeText(getContext(), "Нет данных для экспорта", Toast.LENGTH_SHORT).show();
@@ -91,17 +97,17 @@ public class ReportsFragment extends Fragment {
             SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
             String fileName = "OBD2_Report_" + System.currentTimeMillis() + ".pdf";
 
-            // Используем кеш-директорию (не требует прав)
+            // Используем кеш-директорию (не требует дополнительных прав)
             File dir = getContext().getExternalCacheDir();
-            if (dir == null) {
-                dir = getContext().getFilesDir();
-            }
+            if (dir == null) dir = getContext().getFilesDir();
             File file = new File(dir, fileName);
 
+            // Создание PDF-документа
             PdfWriter writer = new PdfWriter(file);
             PdfDocument pdf = new PdfDocument(writer);
             Document document = new Document(pdf);
 
+            // Заголовок и дата
             document.add(new Paragraph("ОТЧЁТ OBD2")
                     .setFontSize(18)
                     .setBold()
@@ -113,6 +119,7 @@ public class ReportsFragment extends Fragment {
 
             document.add(new Paragraph("\n"));
 
+            // Таблица с данными поездок
             Table table = new Table(4);
             table.addCell(new Cell().add(new Paragraph("№")));
             table.addCell(new Cell().add(new Paragraph("Дата")));
@@ -131,7 +138,7 @@ public class ReportsFragment extends Fragment {
 
             Toast.makeText(getContext(), "PDF сохранён: " + file.getAbsolutePath(), Toast.LENGTH_LONG).show();
 
-            // Открываем файл для просмотра
+            // Предложение открыть PDF
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(Uri.fromFile(file), "application/pdf");
             intent.setFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
@@ -143,7 +150,7 @@ public class ReportsFragment extends Fragment {
         }
     }
 
-    // Адаптер для списка поездок
+    // АДАПТЕР ДЛЯ СПИСКА ПОЕЗДОК (RecyclerView)
     class TripAdapter extends RecyclerView.Adapter<TripAdapter.ViewHolder> {
         private List<TripEntity> trips;
 
@@ -175,6 +182,7 @@ public class ReportsFragment extends Fragment {
             ViewHolder(TextView tv) { super(tv); textView = tv; }
         }
     }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         if (requestCode == 200) {

@@ -1,11 +1,15 @@
+/*
+ * CarProfileManager.java — управление профилями автомобилей.
+ * Хранит список предустановленных профилей (Toyota, Subaru, Generic).
+ * Сохраняет и загружает выбранный профиль через SharedPreferences (JSON через Gson).
+ */
+
 package com.example.autodiag.obd;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-
 import com.example.autodiag.models.CarProfile;
 import com.google.gson.Gson;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,6 +24,7 @@ public class CarProfileManager {
         this.gson = new Gson();
     }
 
+    // Предустановленные профили — расширяемый список
     public List<CarProfile> getPresetProfiles() {
         List<CarProfile> profiles = new ArrayList<>();
 
@@ -35,7 +40,7 @@ public class CarProfileManager {
         corolla.setPidMap(pids1);
         profiles.add(corolla);
 
-        // Generic OBD2
+        // Generic OBD2 — универсальный профиль
         CarProfile generic = new CarProfile("Generic", "OBD2", 0);
         Map<String, String> pids2 = new HashMap<>();
         pids2.put("SPEED", "01 0D");
@@ -46,7 +51,7 @@ public class CarProfileManager {
         generic.setPidMap(pids2);
         profiles.add(generic);
 
-        //Subaru forester sg5
+        // Subaru Forester SG5
         CarProfile subaru = new CarProfile("Subaru", "Forester SG5", 2005);
         Map<String, String> subaruPids = new HashMap<>();
         subaruPids.put("SPEED", "01 0D");
@@ -61,14 +66,16 @@ public class CarProfileManager {
         return profiles;
     }
 
+    // Загрузка выбранного профиля из SharedPreferences
     public CarProfile getSelectedCar() {
         String json = prefs.getString("selected_car", null);
         if (json == null) {
-            return getPresetProfiles().get(0);
+            return getPresetProfiles().get(0); // по умолчанию — первый (Toyota)
         }
         return gson.fromJson(json, CarProfile.class);
     }
 
+    // Сохранение выбранного профиля в SharedPreferences
     public void saveSelectedCar(CarProfile car) {
         String json = gson.toJson(car);
         prefs.edit().putString("selected_car", json).apply();

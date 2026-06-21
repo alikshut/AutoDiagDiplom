@@ -1,3 +1,9 @@
+/*
+ * GraphsFragment.java — экран графиков параметров.
+ * Подписывается на DataRepository (LiveData) и обновляет график при поступлении новых данных.
+ * Переключение между скоростью, оборотами и температурой через табы.
+ */
+
 package com.example.autodiag.fragments;
 
 import android.graphics.Color;
@@ -8,7 +14,6 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
-import androidx.lifecycle.Observer;
 import com.example.autodiag.R;
 import com.example.autodiag.utils.DataRepository;
 import com.github.mikephil.charting.charts.LineChart;
@@ -35,7 +40,7 @@ public class GraphsFragment extends Fragment {
         tabLayout = view.findViewById(R.id.tabLayout);
         tvCurrentValue = view.findViewById(R.id.tv_current_value);
 
-        // Настройка графика
+        // Настройка внешнего вида графика
         chart.getDescription().setEnabled(false);
         chart.getAxisLeft().setTextColor(Color.WHITE);
         chart.getXAxis().setTextColor(Color.WHITE);
@@ -43,18 +48,19 @@ public class GraphsFragment extends Fragment {
         chart.getXAxis().setPosition(XAxis.XAxisPosition.BOTTOM);
         chart.getLegend().setTextColor(Color.WHITE);
 
-        // Табы
+        // Вкладки: скорость, обороты, температура
         tabLayout.addTab(tabLayout.newTab().setText("Скорость"));
         tabLayout.addTab(tabLayout.newTab().setText("Обороты"));
         tabLayout.addTab(tabLayout.newTab().setText("Температура"));
 
+        // Обработка переключения вкладок
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) { currentTab = tab.getPosition(); updateChart(); }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
-        // Подписка на реальные данные
+        // Подписка на изменения данных из DataRepository
         DataRepository.getInstance().getSpeedHistory().observe(getViewLifecycleOwner(), data -> updateChart());
         DataRepository.getInstance().getRpmHistory().observe(getViewLifecycleOwner(), data -> updateChart());
         DataRepository.getInstance().getTempHistory().observe(getViewLifecycleOwner(), data -> updateChart());
@@ -62,6 +68,7 @@ public class GraphsFragment extends Fragment {
         return view;
     }
 
+    // Обновление графика в зависимости от выбранной вкладки
     private void updateChart() {
         List<Entry> entries = new ArrayList<>();
         String label;
@@ -85,6 +92,7 @@ public class GraphsFragment extends Fragment {
                 color = Color.rgb(33, 150, 243);
         }
 
+        // Если есть данные — строим график
         if (data != null && !data.isEmpty()) {
             for (int i = 0; i < data.size(); i++) {
                 entries.add(new Entry(i, data.get(i)));
@@ -98,6 +106,7 @@ public class GraphsFragment extends Fragment {
 
         if (entries.isEmpty()) return;
 
+        // Настройка линии
         LineDataSet dataSet = new LineDataSet(entries, label);
         dataSet.setColor(color);
         dataSet.setLineWidth(2f);
@@ -108,6 +117,6 @@ public class GraphsFragment extends Fragment {
         dataSet.setDrawValues(false);
 
         chart.setData(new LineData(dataSet));
-        chart.invalidate();
+        chart.invalidate(); // перерисовка
     }
 }

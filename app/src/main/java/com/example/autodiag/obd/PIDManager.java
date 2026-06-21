@@ -1,7 +1,12 @@
+/*
+ * PIDManager.java — управление PID командами для OBD2.
+ * На основе выбранного профиля автомобиля возвращает команду для запроса параметра.
+ * Поддерживает fallback: если PID нет в профиле — используется стандартный.
+ */
+
 package com.example.autodiag.obd;
 
 import com.example.autodiag.models.CarProfile;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -12,7 +17,7 @@ public class PIDManager {
         activePids = new HashMap<>();
         Map<String, String> carPids = car.getPidMap();
 
-        // Используем containsKey вместо getOrDefault (для API 21)
+        // Для API 21 используем containsKey вместо getOrDefault
         if (carPids.containsKey("SPEED")) activePids.put("SPEED", carPids.get("SPEED"));
         else activePids.put("SPEED", "01 0D");
 
@@ -32,6 +37,7 @@ public class PIDManager {
         else activePids.put("MAF", "01 10");
     }
 
+    // Возвращает команду для запроса параметра
     public String getCommand(String parameter) {
         return activePids.get(parameter);
     }

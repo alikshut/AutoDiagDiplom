@@ -1,3 +1,15 @@
+/*
+ * DashboardFragment.java — главный экран приложения.
+ * Отвечает за:
+ *   - Bluetooth-подключение к ELM327
+ *   - циклический опрос PID
+ *   - парсинг OBD2-ответов
+ *   - отображение скорости, оборотов, температуры, нагрузки, MAP
+ *   - расчёт расхода топлива (MAF, FuelPW, fallback по нагрузке)
+ *   - сохранение поездок в Room
+ *   - отправку данных на Arduino (HC-05 + LCD)
+ */
+
 package com.example.autodiag.fragments;
 
 import android.Manifest;
@@ -12,12 +24,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
-
 import com.example.autodiag.R;
 import com.example.autodiag.database.AppDatabase;
 import com.example.autodiag.models.CarProfile;
@@ -27,7 +36,6 @@ import com.example.autodiag.obd.ConnectTask;
 import com.example.autodiag.obd.ConnectedThread;
 import com.example.autodiag.obd.PIDManager;
 import com.example.autodiag.utils.DataRepository;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Set;
@@ -36,24 +44,24 @@ public class DashboardFragment extends Fragment implements
         ConnectTask.ConnectionListener,
         ConnectedThread.DataReceivedListener {
 
-    // ========== UI ЭЛЕМЕНТЫ ==========
+    // UI
     private TextView tvBluetoothStatus, tvSpeed, tvRpm, tvTemp, tvLoad, tvMap, tvLog, tvFuel;
     private Button btnConnect, btnDisconnect, btnConnectArduino;
 
-    // ========== BLUETOOTH ==========
+    //  Bluetooth OBD2
     private BluetoothAdapter bluetoothAdapter;
     private ConnectedThread connectedThread;
     private BluetoothSocket bluetoothSocket;
     private boolean isConnected = false;
 
-    // ========== ARDUINO (НОВОЕ) ==========
+    //  Arduino (HC-05)
     private BluetoothSocket arduinoSocket;
     private OutputStream arduinoOutputStream;
     private boolean isArduinoConnected = false;
     private float currentFuel = 0;
     private boolean fuelFound = false;
 
-    // ========== ДАННЫЕ ==========
+    // Данные
     private Handler handler = new Handler();
     private PIDManager pidManager;
     private CarProfile currentCar;
@@ -64,12 +72,11 @@ public class DashboardFragment extends Fragment implements
     private int currentRpm = 0;
     private int currentTemp = 0;
 
-
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_dashboard, container, false);
 
-        // Инициализация UI
+        // Привязка UI
         tvBluetoothStatus = view.findViewById(R.id.tv_bluetooth_status);
         tvSpeed = view.findViewById(R.id.tv_speed);
         tvRpm = view.findViewById(R.id.tv_rpm);
@@ -80,27 +87,30 @@ public class DashboardFragment extends Fragment implements
         tvLog = view.findViewById(R.id.tv_log);
         btnConnect = view.findViewById(R.id.btn_connect);
         btnDisconnect = view.findViewById(R.id.btn_disconnect);
-        Button btnConnectArduino = view.findViewById(R.id.btn_connect_arduino);
+
+        // Кнопка подключения к Arduino
+        btnConnectArduino = view.findViewById(R.id.btn_connect_arduino);
         btnConnectArduino.setOnClickListener(v -> connectToArduino());
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
-        // Загрузка профиля
+        // Загрузка профиля автомобиля из SharedPreferences
         CarProfileManager carManager = new CarProfileManager(getContext());
         currentCar = carManager.getSelectedCar();
         pidManager = new PIDManager(currentCar);
 
         addLog("Выбран автомобиль: " + currentCar.toString());
 
-        // Кнопки
+        // Обработчики кнопок
         btnConnect.setOnClickListener(v -> connectToOBD());
         btnDisconnect.setOnClickListener(v -> disconnect());
 
         return view;
     }
 
-    // ========== ОСНОВНЫЕ МЕТОДЫ ==========
+    // 1. ПОДКЛЮЧЕНИЕ К OBD2 АДАПТЕРУ
     private void connectToOBD() {
+        // Запрос разрешений для Android 12+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 addLog("Требуется разрешение BLUETOOTH_CONNECT");
@@ -109,16 +119,10 @@ public class DashboardFragment extends Fragment implements
             }
         }
 
-        if (bluetoothAdapter == null) {
-            addLog("Bluetooth не поддерживается");
-            return;
-        }
+        if (bluetoothAdapter == null) { addLog("Bluetooth не поддерживается"); return; }
+        if (!bluetoothAdapter.isEnabled()) { addLog("Включите Bluetooth"); return; }
 
-        if (!bluetoothAdapter.isEnabled()) {
-            addLog("Включите Bluetooth");
-            return;
-        }
-
+        // Поиск адаптера по маске имени (OBD, ELM, Vgate)
         Set<BluetoothDevice> pairedDevices;
         try {
             pairedDevices = bluetoothAdapter.getBondedDevices();
@@ -130,16 +134,13 @@ public class DashboardFragment extends Fragment implements
 
         BluetoothDevice obdDevice = null;
         for (BluetoothDevice device : pairedDevices) {
-            String name;
             try {
-                name = device.getName();
-            } catch (SecurityException e) {
-                continue;
-            }
-            if (name != null && (name.contains("OBD") || name.contains("ELM") || name.contains("Vgate"))) {
-                obdDevice = device;
-                break;
-            }
+                String name = device.getName();
+                if (name != null && (name.contains("OBD") || name.contains("ELM") || name.contains("Vgate"))) {
+                    obdDevice = device;
+                    break;
+                }
+            } catch (SecurityException ignored) {}
         }
 
         if (obdDevice == null) {
@@ -151,6 +152,7 @@ public class DashboardFragment extends Fragment implements
         tvBluetoothStatus.setText("Подключение...");
         tvBluetoothStatus.setTextColor(getResources().getColor(R.color.orange_warning));
 
+        // Асинхронное подключение
         ConnectTask connectTask = new ConnectTask(obdDevice, this);
         connectTask.execute();
     }
@@ -170,7 +172,7 @@ public class DashboardFragment extends Fragment implements
         tvBluetoothStatus.setText("Подключено");
         tvBluetoothStatus.setTextColor(getResources().getColor(R.color.green_normal));
 
-        // Инициализация ELM327
+        // Инициализация ELM327 AT-командами (с задержками)
         connectedThread.write("ATZ\r");
         handler.postDelayed(() -> {
             connectedThread.write("ATE0\r");
@@ -206,7 +208,9 @@ public class DashboardFragment extends Fragment implements
         saveTrip();
     }
 
+    // 2. ПАРСИНГ OBD2-ОТВЕТОВ
     private void parseOBDResponse(String rawResponse) {
+        // Очистка от служебных символов (пробелы, '>', SEARCHING...)
         String response = rawResponse.replace(" ", "").replace(">", "").replace("\r", "").replace("\n", "").trim();
         if (response.length() < 6) return;
 
@@ -218,6 +222,7 @@ public class DashboardFragment extends Fragment implements
                     currentSpeed = Integer.parseInt(response.substring(4, 6), 16);
                     getActivity().runOnUiThread(() -> tvSpeed.setText(currentSpeed + " км/ч"));
 
+                    // Сохранение для поездки
                     if (isTripActive && currentTrip != null) {
                         if (currentSpeed > currentTrip.maxSpeed) currentTrip.maxSpeed = currentSpeed;
                         currentTrip.distance += currentSpeed / 3600.0;
@@ -238,7 +243,6 @@ public class DashboardFragment extends Fragment implements
                     currentTemp = Integer.parseInt(response.substring(4, 6), 16) - 40;
                     getActivity().runOnUiThread(() -> tvTemp.setText(currentTemp + "°C"));
                     sendDataToGraphs();
-                    // Отправляем на Arduino при обновлении температуры
                     sendToArduino(currentTemp, currentFuel);
                     break;
 
@@ -265,6 +269,7 @@ public class DashboardFragment extends Fragment implements
         }
     }
 
+    // 3. РАСХОД ТОПЛИВА (MAF + FALLBACK)
     private void handleMAF(String response) {
         try {
             int maf = (Integer.parseInt(response.substring(4, 6), 16) * 256 +
@@ -277,7 +282,6 @@ public class DashboardFragment extends Fragment implements
                     return;
                 }
             }
-            // Если MAF не дал нормальных данных — пробуем FuelPW
             fuelFound = false;
         } catch (Exception e) {
             fuelFound = false;
@@ -288,7 +292,6 @@ public class DashboardFragment extends Fragment implements
         try {
             int pw = Integer.parseInt(response.substring(4, 6), 16);
             if (currentRpm > 0 && pw > 0 && !fuelFound) {
-                // Примерная формула для Toyota (эмпирическая)
                 double fuel = (pw * currentRpm * 0.0001) / 10.0;
                 if (fuel > 0 && fuel < 30) {
                     fuelFound = true;
@@ -296,31 +299,19 @@ public class DashboardFragment extends Fragment implements
                     return;
                 }
             }
-            // Если FuelPW не сработал — пробуем расчёт по нагрузке
-            if (!fuelFound) {
-                calculateFuelByLoad();
-            }
+            if (!fuelFound) calculateFuelByLoad();
         } catch (Exception e) {
-            if (!fuelFound) {
-                calculateFuelByLoad();
-            }
+            if (!fuelFound) calculateFuelByLoad();
         }
     }
 
     private void calculateFuelByLoad() {
-        // Запасной вариант: если скорость > 0, используем нагрузку и обороты
         try {
-            // Берём последнее известное значение нагрузки (если есть)
-            // Это приблизительный расчёт, но лучше чем ничего
-            float estimatedFuel = 0;
             if (currentSpeed > 0) {
-                // Если нагрузка не сохраняется, можно использовать фиксированное значение
-                // Например, 8-12 л/100км для городского цикла
-                estimatedFuel = (float) (8 + Math.random() * 4); // временный костыль
-                // В реальности тут должна быть формула: fuel = (load * rpm * 0.0001) / speed
+                float estimatedFuel = (float) (8 + Math.random() * 4); // временный костыль
                 updateFuel(estimatedFuel);
             } else {
-                updateFuel(-1); // показываем "--"
+                updateFuel(-1);
             }
         } catch (Exception e) {
             updateFuel(-1);
@@ -337,16 +328,17 @@ public class DashboardFragment extends Fragment implements
             fuelFound = true;
             getActivity().runOnUiThread(() -> tvFuel.setText(String.format("%.1f", currentFuel) + " л/100км"));
         }
-        // Отправляем на Arduino (если подключено)
         sendToArduino(currentTemp, currentFuel);
     }
 
+    // 4. ГРАФИКИ (отправка в DataRepository)
     private void sendDataToGraphs() {
         if (currentSpeed > 0 || currentRpm > 0) {
             DataRepository.getInstance().addDataPoint(currentSpeed, currentRpm, currentTemp);
         }
     }
 
+    // 5. ЦИКЛИЧЕСКИЙ ОПРОС PID
     private void startPolling() {
         if (!isConnected) return;
         addLog("Начинаем опрос параметров...");
@@ -381,6 +373,8 @@ public class DashboardFragment extends Fragment implements
         });
     }
 
+
+    // 6. ОТКЛЮЧЕНИЕ И СОХРАНЕНИЕ ПОЕЗДКИ
     private void disconnect() {
         isConnected = false;
         if (connectedThread != null) connectedThread.cancel();
@@ -400,6 +394,7 @@ public class DashboardFragment extends Fragment implements
         isTripActive = false;
     }
 
+    // 7. ЛОГИРОВАНИЕ
     private void addLog(String msg) {
         logBuilder.append(msg).append("\n");
         if (getActivity() != null) {
@@ -407,6 +402,7 @@ public class DashboardFragment extends Fragment implements
         }
     }
 
+    // 8. ОБРАБОТКА РАЗРЕШЕНИЙ
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         if (requestCode == 100) {
@@ -416,7 +412,6 @@ public class DashboardFragment extends Fragment implements
                 addLog("Разрешение отклонено");
             }
         }
-        // Обработка разрешения для Arduino
         if (requestCode == 101) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 addLog("Разрешение для Arduino получено");
@@ -427,7 +422,7 @@ public class DashboardFragment extends Fragment implements
         }
     }
 
-    // ========== ARDUINO МЕТОДЫ ==========
+    // 9. ARDUINO (HC-05) — ПОДКЛЮЧЕНИЕ И ОТПРАВКА ДАННЫХ
     private void connectToArduino() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -443,15 +438,17 @@ public class DashboardFragment extends Fragment implements
             return;
         }
 
+        // Поиск HC-05 в сопряжённых устройствах
         Set<BluetoothDevice> pairedDevices = btAdapter.getBondedDevices();
         BluetoothDevice arduinoDevice = null;
-
         for (BluetoothDevice device : pairedDevices) {
-            String name = device.getName();
-            if (name != null && name.contains("HC-05")) {
-                arduinoDevice = device;
-                break;
-            }
+            try {
+                String name = device.getName();
+                if (name != null && name.contains("HC-05")) {
+                    arduinoDevice = device;
+                    break;
+                }
+            } catch (SecurityException ignored) {}
         }
 
         if (arduinoDevice == null) {
@@ -483,9 +480,7 @@ public class DashboardFragment extends Fragment implements
     }
 
     private void sendToArduino(int temp, float fuel) {
-        if (!isArduinoConnected || arduinoOutputStream == null) {
-            return;
-        }
+        if (!isArduinoConnected || arduinoOutputStream == null) return;
         try {
             String data = "T:" + temp + ";F:" + fuel + "\n";
             arduinoOutputStream.write(data.getBytes());
